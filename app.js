@@ -1,6 +1,6 @@
 const APP_CONFIG = {
     appName: 'Multi-AI Manager',
-    version: '2.0.0',
+    version: '2.1.0',
     defaultTimeLimit: 120,
 };
 
@@ -48,6 +48,7 @@ function showDashboard() {
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('dashboard-screen').classList.remove('hidden');
     renderDashboard();
+    updateHeaderDisplay();
 }
 
 function handleLogin() {
@@ -235,57 +236,62 @@ function renderAccounts() {
 }
 
 function updateCurrentWorking() {
-    const currentProjectId = localStorage.getItem('ai-manager-current-project');
-    const activeAccountId = localStorage.getItem('ai-manager-active-account');
+    const activeProjects = state.data.projects.filter(p => p.status === 'ongoing' && p.remaining_minutes > 0);
     
-    if (currentProjectId) {
-        const project = state.data.projects.find(p => p.id == currentProjectId);
-        if (project) {
-            document.getElementById('current-project-name').textContent = project.name;
-            document.getElementById('current-project-status').textContent = project.status;
-            document.getElementById('dash-project-name').textContent = project.name;
-        }
+    const container = document.getElementById('multi-working');
+    
+    if (activeProjects.length === 0) {
+        container.innerHTML = '<p class="empty-text">No active projects</p>';
+        return;
+    }
+    
+    container.innerHTML = activeProjects.map(proj => {
+        const linkedAccount = state.data.accounts.find(a => a.project_id === proj.id && a.is_active);
+        return `
+        <div class="multi-working-item">
+            <div class="project-info">
+                <span class="provider-icon">${linkedAccount ? getProviderIcon(linkedAccount.provider) : '📁'}</span>
+                <span class="project-name">${escapeHtml(proj.name)}</span>
+            </div>
+            <span class="timer ${getTimerClass(proj.remaining_minutes)}">${formatTime(proj.remaining_minutes)}</span>
+        </div>
+        `;
+    }).join('');
+}
+
+function updateHeaderDisplay() {
+    const activeProjects = state.data.projects.filter(p => p.status === 'ongoing' && p.remaining_minutes > 0);
+    
+    if (activeProjects.length > 0) {
+        const proj = activeProjects[0];
+        document.getElementById('current-project-name').textContent = proj.name;
+        document.getElementById('current-project-status').textContent = proj.status;
+        const linkedAccount = state.data.accounts.find(a => a.project_id === proj.id && a.is_active);
+        document.getElementById('current-account-timer').textContent = formatTime(proj.remaining_minutes);
     } else {
         document.getElementById('current-project-name').textContent = 'No Project';
         document.getElementById('current-project-status').textContent = '-';
-        document.getElementById('dash-project-name').textContent = '-';
-    }
-    
-    if (activeAccountId) {
-        const account = state.data.accounts.find(a => a.id == activeAccountId);
-        if (account) {
-            const project = state.data.projects.find(p => p.id === account.project_id);
-            document.getElementById('current-account-timer').textContent = project ? formatTime(project.remaining_minutes) : '--:--:--';
-            document.getElementById('dash-account-name').textContent = account.provider;
-            document.getElementById('dash-account-email').textContent = account.email;
-            document.getElementById('dash-timer').textContent = project ? formatTime(project.remaining_minutes) : '--:--:--';
-            document.getElementById('dash-timer').className = 'info-value ' + (project ? getTimerClass(project.remaining_minutes) : '');
-        }
-    } else {
         document.getElementById('current-account-timer').textContent = '--:--:--';
-        document.getElementById('dash-account-name').textContent = '-';
-        document.getElementById('dash-account-email').textContent = '-';
-        document.getElementById('dash-timer').textContent = '-';
     }
 }
 
 function startTimerLoop() {
     setInterval(() => {
-        const activeProjectId = localStorage.getItem('ai-manager-current-project');
-        const activeAccountId = localStorage.getItem('ai-manager-active-account');
-        
-        if (activeProjectId && activeAccountId) {
-            const proj = state.data.projects.find(p => p.id == activeProjectId);
-            if (proj && proj.remaining_minutes > 0) {
+        state.data.projects.forEach(proj => {
+            const linkedAccount = state.data.accounts.find(a => a.project_id === proj.id && a.is_active);
+            if (linkedAccount && proj.remaining_minutes > 0) {
                 proj.remaining_minutes--;
-                saveData();
             }
-        }
+        });
+        
+        saveData();
         
         if (!document.getElementById('dashboard-screen').classList.contains('hidden')) {
             if (state.currentView === 'dashboard') {
                 renderAccountsGrid();
+                renderProjectsGrid();
                 updateCurrentWorking();
+                updateHeaderDisplay();
             }
         }
     }, 60000);
@@ -478,36 +484,69 @@ function useAccount(id) {
     const account = state.data.accounts.find(a => a.id === id);
     if (!account) return;
     
-    const prevActiveId = localStorage.getItem('ai-manager-active-account');
+    if (!account.project_id) return showToast('Link account to project first', 'warning');
     
-    if (account.project_id) {
-        const proj = state.data.projects.find(p => p.id === account.project_id);
-        
-        if (prevActiveId && prevActiveId != id) {
-            const prevAccount = state.data.accounts.find(a => a.id == prevActiveId);
-            if (prevAccount && prevAccount.project_id) {
-                const prevProj = state.data.projects.find(p => p.id === prevAccount.project_id);
-                if (prevProj) {
-                    prevProj.reset_date = getNextResetDate();
-                }
-            }
+    const proj = state.data.projects.find(p => p.id === account.project_id);
+    if (!proj || proj.remaining_minutes <= 0) return showToast('No time left', 'warning');
+    
+    const prevActiveId = localStorage.getItem('ai-manager-active-account');
+    const prevProjectId = localStorage.getItem('ai-manager-current-project');
+    
+    if (prevActiveId && prevActiveId != id) {
+        const switchModal = document.getElementById('switch-modal');
+        if (switchModal) {
+            switchModal.remove();
         }
         
-        if (!proj || proj.remaining_minutes <= 0) {
-            return showToast('No time left on project', 'warning');
+        const prevProj = state.data.projects.find(p => p.id == prevProjectId);
+        if (prevProj) {
+            const body = document.body;
+            const modal = document.createElement('div');
+            modal.id = 'switch-modal';
+            modal.className = 'switch-modal';
+            modal.innerHTML = `
+                <div class="switch-modal-content">
+                    <h3>Switch AI?</h3>
+                    <p>Previous: <strong>${prevProj.name}</strong> will reset at:</p>
+                    <input type="datetime-local" id="switch-reset-time" value="${getNextResetDate()}">
+                    <div class="switch-modal-actions">
+                        <button class="btn-secondary" onclick="document.getElementById('switch-modal').remove()">Cancel</button>
+                        <button class="btn-primary" onclick="confirmSwitch(${id}, ${prevProjectId})">Switch</button>
+                    </div>
+                </div>
+            `;
+            body.appendChild(modal);
+            return;
         }
-        
-        localStorage.setItem('ai-manager-current-project', account.project_id);
-        localStorage.setItem('ai-manager-active-account', id);
-        
-        state.data.accounts.forEach(a => a.is_active = false);
-        account.is_active = true;
-        
-        showToast(`Using ${account.provider} on ${proj.name}`, 'success');
-    } else {
-        return showToast('Link account to a project first', 'warning');
     }
     
+    activateAccount(id, account.project_id);
+}
+
+function confirmSwitch(newAccountId, prevProjectId) {
+    const resetTime = document.getElementById('switch-reset-time').value;
+    const prevProj = state.data.projects.find(p => p.id === prevProjectId);
+    if (prevProj) {
+        prevProj.remaining_minutes = 0;
+        prevProj.reset_date = resetTime;
+    }
+    document.getElementById('switch-modal').remove();
+    
+    const newAccount = state.data.accounts.find(a => a.id === newAccountId);
+    activateAccount(newAccountId, newAccount.project_id);
+}
+
+function activateAccount(accountId, projectId) {
+    const account = state.data.accounts.find(a => a.id === accountId);
+    const proj = state.data.projects.find(p => p.id === projectId);
+    
+    localStorage.setItem('ai-manager-current-project', projectId);
+    localStorage.setItem('ai-manager-active-account', accountId);
+    
+    state.data.accounts.forEach(a => a.is_active = false);
+    account.is_active = true;
+    
+    showToast(`Using ${account.provider} on ${proj.name}`, 'success');
     saveData();
     refreshView();
 }
@@ -521,28 +560,72 @@ function getNextResetDate() {
 }
 
 function showProjectSelector() {
-    const projects = state.data.projects;
-    if (projects.length === 0) return showToast('No projects', 'warning');
+    const projects = state.data.projects.filter(p => p.status === 'ongoing');
+    const allAccounts = state.data.accounts;
     
-    document.getElementById('modal-title').textContent = 'Select Project';
+    if (projects.length === 0) return showToast('No ongoing projects', 'warning');
+    
+    let options = '';
+    projects.forEach(proj => {
+        const linkedAccounts = allAccounts.filter(a => a.project_id === proj.id);
+        const activeAcc = linkedAccounts.find(a => a.is_active);
+        const timeLeft = formatTime(proj.remaining_minutes);
+        const status = proj.remaining_minutes > 0 ? 'active' : 'depleted';
+        
+        options += `<option value="${proj.id}">${proj.name} - ${timeLeft} [${status}]</option>`;
+        
+        if (linkedAccounts.length > 0) {
+            linkedAccounts.forEach(acc => {
+                options += `<option value="${proj.id}_${acc.id}" disabled>   ↳ ${acc.provider}: ${acc.email}</option>`;
+            });
+        }
+    });
+    
+    document.getElementById('modal-title').textContent = 'Switch AI';
     document.getElementById('modal-body').innerHTML = `
         <div class="form-group">
-            <select id="select-project">
-                ${projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${formatTime(p.remaining_minutes)})</option>`).join('')}
+            <label>Select Project</label>
+            <select id="switch-project-select">${options}</select>
+        </div>
+        <div class="form-group">
+            <label>Select Account</label>
+            <select id="switch-account-select">
+                <option value="">-- Select after project --</option>
             </select>
         </div>
     `;
+    
     document.getElementById('modal-footer').innerHTML = `
         <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn-primary" onclick="confirmProjectSelect()">Select</button>
+        <button class="btn-primary" onclick="switchToNewAccount()">Switch</button>
     `;
+    
+    document.getElementById('switch-project-select').addEventListener('change', updateAccountDropdown);
     openModal();
 }
 
-function confirmProjectSelect() {
-    const id = parseInt(document.getElementById('select-project').value);
-    setCurrentProject(id);
-    closeModal();
+function updateAccountDropdown() {
+    const projectId = parseInt(document.getElementById('switch-project-select').value.split('_')[0]);
+    const linkedAccounts = state.data.accounts.filter(a => a.project_id === projectId);
+    
+    const accountSelect = document.getElementById('switch-account-select');
+    accountSelect.innerHTML = linkedAccounts.map(acc => 
+        `<option value="${acc.id}">${acc.provider} - ${acc.email}</option>`
+    ).join('');
+    
+    if (linkedAccounts.length === 0) {
+        accountSelect.innerHTML = '<option value="">No accounts linked</option>';
+    }
+}
+
+function switchToNewAccount() {
+    const selection = document.getElementById('switch-project-select').value;
+    const accountId = document.getElementById('switch-account-select').value;
+    
+    if (!accountId) return showToast('Select account', 'warning');
+    
+    const projId = parseInt(selection.split('_')[0]);
+    confirmSwitch(parseInt(accountId), projId);
 }
 
 function handleFilter(e) {
