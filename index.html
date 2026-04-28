@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-AI Account Manager</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A4%96%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+    <div id="login-screen" class="screen">
+        <div class="login-container">
+            <div class="logo">🤖</div>
+            <h1>Multi-AI Manager</h1>
+            <p class="tagline">Manage your AI accounts & projects</p>
+            <div class="login-form">
+                <input type="password" id="password-input" placeholder="Enter password">
+                <button id="login-btn" class="btn-primary">Access Dashboard</button>
+            </div>
+            <p id="login-error" class="error hidden">Incorrect password</p>
+        </div>
+    </div>
+
+    <div id="dashboard-screen" class="screen hidden">
+        <header class="header">
+            <div class="header-left">
+                <h1 class="logo-text">🤖 AI Manager</h1>
+            </div>
+            <div class="header-center">
+                <div class="current-project-display">
+                    <span class="label">Working On:</span>
+                    <span id="current-project-name" class="project-name">No Project</span>
+                    <span id="current-project-status" class="status-badge">-</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="current-timer">
+                    <span class="timer-label">Active Account:</span>
+                    <span id="current-account-timer" class="timer-display">--:--:--</span>
+                </div>
+                <button id="menu-btn" class="btn-icon">☰</button>
+            </div>
+        </header>
+
+        <div class="main-container">
+            <aside id="sidebar" class="sidebar">
+                <nav class="nav-menu">
+                    <button class="nav-item active" data-view="dashboard">
+                        <span class="nav-icon">📊</span>
+                        <span>Dashboard</span>
+                    </button>
+                    <button class="nav-item" data-view="projects">
+                        <span class="nav-icon">📁</span>
+                        <span>Projects</span>
+                    </button>
+                    <button class="nav-item" data-view="accounts">
+                        <span class="nav-icon">👤</span>
+                        <span>Accounts</span>
+                    </button>
+                    <button class="nav-item" data-view="settings">
+                        <span class="nav-icon">⚙️</span>
+                        <span>Settings</span>
+                    </button>
+                </nav>
+            </aside>
+
+            <main class="main-content">
+                <section id="dashboard-view" class="view active">
+                    <div class="view-header">
+                        <h2>Dashboard</h2>
+                        <p class="subtitle">Your AI control center</p>
+                    </div>
+
+                    <div class="dashboard-grid">
+                        <div class="card current-working-card">
+                            <div class="card-header">
+                                <h3>Current Working</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="current-info">
+                                    <div class="info-row">
+                                        <span class="info-label">Project:</span>
+                                        <span id="dash-project-name" class="info-value">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Account:</span>
+                                        <span id="dash-account-name" class="info-value">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Email:</span>
+                                        <span id="dash-account-email" class="info-value">-</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Time Left:</span>
+                                        <span id="dash-timer" class="info-value timer-active">-</span>
+                                    </div>
+                                </div>
+                                <button id="switch-project-btn" class="btn-secondary">Switch Project</button>
+                            </div>
+                        </div>
+
+                        <div class="card shortcuts-card">
+                            <div class="card-header">
+                                <h3>Quick Actions</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="quick-actions">
+                                    <button class="quick-btn" id="add-project-quick">+ New Project</button>
+                                    <button class="quick-btn" id="add-account-quick">+ New Account</button>
+                                    <button class="quick-btn" id="export-data-quick">↓ Export Data</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="accounts-section">
+                        <div class="section-header">
+                            <h3>All Accounts</h3>
+                            <span class="count-badge" id="accounts-count">0</span>
+                        </div>
+                        <div id="accounts-grid" class="cards-grid"></div>
+                    </div>
+
+                    <div class="projects-section">
+                        <div class="section-header">
+                            <h3>All Projects</h3>
+                            <span class="count-badge" id="projects-count">0</span>
+                        </div>
+                        <div id="projects-grid" class="cards-grid"></div>
+                    </div>
+                </section>
+
+                <section id="projects-view" class="view">
+                    <div class="view-header">
+                        <h2>Projects</h2>
+                        <button class="btn-primary" id="add-project-btn">+ Add Project</button>
+                    </div>
+                    <div class="filter-bar">
+                        <button class="filter-btn active" data-filter="all">All</button>
+                        <button class="filter-btn" data-filter="ongoing">Ongoing</button>
+                        <button class="filter-btn" data-filter="completed">Completed</button>
+                        <button class="filter-btn" data-filter="future">Future</button>
+                    </div>
+                    <div id="projects-list" class="cards-grid"></div>
+                </section>
+
+                <section id="accounts-view" class="view">
+                    <div class="view-header">
+                        <h2>Accounts</h2>
+                        <button class="btn-primary" id="add-account-btn">+ Add Account</button>
+                    </div>
+                    <div class="filter-bar">
+                        <button class="filter-btn active" data-filter="all">All</button>
+                        <button class="filter-btn" data-filter="active">Active</button>
+                        <button class="filter-btn" data-filter="inactive">Inactive</button>
+                    </div>
+                    <div id="accounts-list" class="cards-grid"></div>
+                </section>
+
+                <section id="settings-view" class="view">
+                    <div class="view-header">
+                        <h2>Settings</h2>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Data Management</h3>
+                            </div>
+                            <div class="card-body">
+                                <button class="btn-secondary" id="export-data">↓ Export All Data</button>
+                                <button class="btn-secondary" id="import-data">↑ Import Data</button>
+                                <input type="file" id="import-file" accept=".json" hidden>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Security</h3>
+                            </div>
+                            <div class="card-body">
+                                <button class="btn-secondary" id="change-password">Change Password</button>
+                                <button class="btn-danger" id="reset-all">Reset All Data</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">Modal</h3>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+            <div class="modal-footer" id="modal-footer"></div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="alasql.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
