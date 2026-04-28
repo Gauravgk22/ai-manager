@@ -1,17 +1,44 @@
 const APP_CONFIG = {
     appName: 'Multi-AI Manager',
-    version: '2.1.0',
+    version: '2.2.0',
     defaultTimeLimit: 120,
 };
 
 const state = {
     isFirstTime: false,
     currentView: 'dashboard',
+    currentUser: null,
     data: {
         accounts: [],
         projects: []
     }
 };
+
+function getUserStorageKey(email) {
+    return 'ai-manager-data-' + btoa(email).substring(0, 20);
+}
+
+function loadData() {
+    const email = localStorage.getItem('ai-manager-current-user');
+    if (email) {
+        state.currentUser = email;
+        const stored = localStorage.getItem(getUserStorageKey(email));
+        if (stored) state.data = JSON.parse(stored);
+    }
+}
+
+function saveData() {
+    if (state.currentUser) {
+        localStorage.setItem(getUserStorageKey(state.currentUser), JSON.stringify(state.data));
+    }
+}
+
+function checkFirstTime() {
+    const storedUsers = localStorage.getItem('ai-manager-users');
+    const users = storedUsers ? JSON.parse(storedUsers) : [];
+    state.isFirstTime = users.length === 0;
+    showLoginScreen();
+}
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -22,26 +49,47 @@ function init() {
     startTimerLoop();
 }
 
-function loadData() {
-    const stored = localStorage.getItem('ai-manager-data');
-    if (stored) state.data = JSON.parse(stored);
-}
+document.addEventListener('DOMContentLoaded', init);
 
-function saveData() {
-    localStorage.setItem('ai-manager-data', JSON.stringify(state.data));
-}
-
-function checkFirstTime() {
-    const password = localStorage.getItem('ai-manager-password');
-    state.isFirstTime = !password;
-    showLoginScreen();
+function init() {
+    loadData();
+    checkFirstTime();
+    setupEventListeners();
+    startTimerLoop();
 }
 
 function showLoginScreen() {
     document.getElementById('login-screen').classList.remove('hidden');
     document.getElementById('dashboard-screen').classList.add('hidden');
-    document.getElementById('password-input').placeholder = state.isFirstTime ? 'Set a password' : 'Enter password';
+    
+    const pw = state.isFirstTime ? 'Set a password' : 'Enter password';
+    document.getElementById('password-input').placeholder = pw;
     document.getElementById('login-btn').textContent = state.isFirstTime ? 'Set Password' : 'Access Dashboard';
+    document.getElementById('add-user-btn').classList.toggle('hidden', !state.isFirstTime);
+    
+    renderUserList();
+}
+
+function renderUserList() {
+    const storedUsers = localStorage.getItem('ai-manager-users');
+    const users = storedUsers ? JSON.parse(storedUsers) : [];
+    const container = document.getElementById('user-list');
+    
+    if (users.length === 0) {
+        container.innerHTML = '<p style="color:var(--text-muted)">No users yet</p>';
+        return;
+    }
+    
+    container.innerHTML = users.map(email => 
+        `<button class="user-btn ${state.currentUser === email ? 'active' : ''}" onclick="selectUser('${email}')">${escapeHtml(email)}</button>`
+    ).join('');
+}
+
+function selectUser(email) {
+    document.getElementById('user-email').value = email;
+    state.currentUser = email;
+    loadData();
+    renderUserList();
 }
 
 function showDashboard() {
@@ -52,7 +100,41 @@ function showDashboard() {
 }
 
 function handleLogin() {
+    const email = document.getElementById('user-email').value.trim().toLowerCase();
     const password = document.getElementById('password-input').value.trim();
+    
+    if (!email) return showLoginError('Enter email');
+    if (!password) return showLoginError('Enter password');
+    
+    if (state.isFirstTime) {
+        const confirm = prompt('Confirm password:');
+        if (password !== confirm) return showLoginError('Passwords mismatch');
+        
+        const users = JSON.parse(localStorage.getItem('ai-manager-users') || '[]');
+        users.push(email);
+        localStorage.setItem('ai-manager-users', JSON.stringify(users));
+        
+        localStorage.setItem('ai-manager-password-' + btoa(email), btoa(password));
+        
+        state.currentUser = email;
+        localStorage.setItem('ai-manager-current-user', email);
+        
+        loadData();
+        state.isFirstTime = false;
+        showToast('Account created!', 'success');
+        showDashboard();
+    } else {
+        const storedPw = localStorage.getItem('ai-manager-password-' + btoa(email));
+        if (btoa(password) === storedPw) {
+            state.currentUser = email;
+            localStorage.setItem('ai-manager-current-user', email);
+            loadData();
+            showDashboard();
+        } else {
+            showLoginError('Wrong password');
+        }
+    }
+}
     if (!password) return showLoginError('Enter password');
     
     if (state.isFirstTime) {
@@ -78,6 +160,8 @@ function showLoginError(msg) {
 function setupEventListeners() {
     document.getElementById('login-btn').addEventListener('click', handleLogin);
     document.getElementById('password-input').addEventListener('keypress', e => { if (e.key === 'Enter') handleLogin(); });
+    document.getElementById('user-email').addEventListener('keypress', e => { if (e.key === 'Enter') handleLogin(); });
+    document.getElementById('add-user-btn').addEventListener('click', handleAddUser);
     
     document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
     
@@ -96,6 +180,30 @@ function setupEventListeners() {
     document.getElementById('modal-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
     document.querySelectorAll('.filter-btn').forEach(btn => btn.addEventListener('click', handleFilter));
     document.getElementById('menu-btn').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('hidden'));
+}
+
+function handleAddUser() {
+    const email = prompt('Enter new user email:');
+    if (!email) return;
+    
+    const normalizedEmail = email.trim().toLowerCase();
+    const users = JSON.parse(localStorage.getItem('ai-manager-users') || '[]');
+    
+    if (users.includes(normalizedEmail)) {
+        return showToast('User already exists', 'warning');
+    }
+    
+    const password = prompt('Set password for ' + normalizedEmail + ':');
+    if (!password) return;
+    const confirm = prompt('Confirm password:');
+    if (password !== confirm) return showToast('Passwords mismatch', 'error');
+    
+    users.push(normalizedEmail);
+    localStorage.setItem('ai-manager-users', JSON.stringify(users));
+    localStorage.setItem('ai-manager-password-' + btoa(normalizedEmail), btoa(password));
+    
+    showToast('User added!', 'success');
+    renderUserList();
 }
 
 function switchView(viewName) {
@@ -261,6 +369,10 @@ function updateCurrentWorking() {
 
 function updateHeaderDisplay() {
     const activeProjects = state.data.projects.filter(p => p.status === 'ongoing' && p.remaining_minutes > 0);
+    
+    if (state.currentUser) {
+        document.getElementById('current-user-display').textContent = state.currentUser;
+    }
     
     if (activeProjects.length > 0) {
         const proj = activeProjects[0];
@@ -739,9 +851,21 @@ function changePassword() {
 }
 
 function resetAllData() {
-    if (!confirm('DELETE ALL?')) return;
-    if (!confirm('Final confirm?')) return;
-    localStorage.clear();
+    if (!confirm('Delete ALL your data?')) return;
+    if (!confirm('Final confirm? This cannot be undone.')) return;
+    
+    const email = state.currentUser;
+    if (email) {
+        localStorage.removeItem(getUserStorageKey(email));
+        localStorage.removeItem('ai-manager-password-' + btoa(email));
+        
+        let users = JSON.parse(localStorage.getItem('ai-manager-users') || '[]');
+        users = users.filter(u => u !== email);
+        localStorage.setItem('ai-manager-users', JSON.stringify(users));
+        
+        localStorage.removeItem('ai-manager-current-user');
+    }
+    
     location.reload();
 }
 

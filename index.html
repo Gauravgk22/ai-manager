@@ -13,11 +13,16 @@
             <div class="logo">🤖</div>
             <h1>Multi-AI Manager</h1>
             <p class="tagline">Manage your AI accounts & projects</p>
+            
+            <div id="user-list" class="user-list"></div>
+            
             <div class="login-form">
+                <input type="email" id="user-email" placeholder="Your Email" style="margin-bottom:10px">
                 <input type="password" id="password-input" placeholder="Enter password">
                 <button id="login-btn" class="btn-primary">Access Dashboard</button>
             </div>
             <p id="login-error" class="error hidden">Incorrect password</p>
+            <button id="add-user-btn" class="btn-link">+ Add New User</button>
         </div>
     </div>
 
@@ -25,6 +30,7 @@
         <header class="header">
             <div class="header-left">
                 <h1 class="logo-text">🤖 AI Manager</h1>
+                <span id="current-user-display" class="user-display"></span>
             </div>
             <div class="header-center">
                 <div class="current-project-display">
