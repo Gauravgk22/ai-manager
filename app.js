@@ -1,385 +1,221 @@
-const APP_CONFIG = {
-    appName: 'Multi-AI Manager',
-    version: '2.2.0',
-    defaultTimeLimit: 120,
-};
+const APP_CONFIG = { appName: 'Multi-AI Manager', version: '2.3.0', defaultTimeLimit: 120 };
+const state = { isFirstTime: false, currentView: 'dashboard', currentUser: null, data: { accounts: [], projects: [] } };
 
-const state = {
-    isFirstTime: false,
-    currentView: 'dashboard',
-    currentUser: null,
-    data: {
-        accounts: [],
-        projects: []
-    }
-};
-
-function getUserStorageKey(email) {
-    return 'ai-manager-data-' + btoa(email).substring(0, 20);
-}
+function getUserKey(e) { return 'aim-data-' + btoa(e).substring(0, 20); }
+function getUsers() { return JSON.parse(localStorage.getItem('aim-users') || '[]'); }
+function saveUsers(u) { localStorage.setItem('aim-users', JSON.stringify(u)); }
 
 function loadData() {
-    const email = localStorage.getItem('ai-manager-current-user');
-    if (email) {
-        state.currentUser = email;
-        const stored = localStorage.getItem(getUserStorageKey(email));
-        if (stored) state.data = JSON.parse(stored);
-    }
+    if (state.currentUser) { var s = localStorage.getItem(getUserKey(state.currentUser)); state.data = s ? JSON.parse(s) : { accounts: [], projects: [] }; }
+    else state.data = { accounts: [], projects: [] };
 }
 
-function saveData() {
-    if (state.currentUser) {
-        localStorage.setItem(getUserStorageKey(state.currentUser), JSON.stringify(state.data));
-    }
-}
-
-function checkFirstTime() {
-    const storedUsers = localStorage.getItem('ai-manager-users');
-    const users = storedUsers ? JSON.parse(storedUsers) : [];
-    state.isFirstTime = users.length === 0;
-    showLoginScreen();
-}
-
-document.addEventListener('DOMContentLoaded', init);
-
-function init() {
-    loadData();
-    checkFirstTime();
-    setupEventListeners();
-    startTimerLoop();
-}
-
-document.addEventListener('DOMContentLoaded', init);
-
-function init() {
-    loadData();
-    checkFirstTime();
-    setupEventListeners();
-    startTimerLoop();
-}
+function saveData() { if (state.currentUser) localStorage.setItem(getUserKey(state.currentUser), JSON.stringify(state.data)); }
 
 function showLoginScreen() {
     document.getElementById('login-screen').classList.remove('hidden');
     document.getElementById('dashboard-screen').classList.add('hidden');
-    
-    const pw = state.isFirstTime ? 'Set a password' : 'Enter password';
-    document.getElementById('password-input').placeholder = pw;
-    document.getElementById('login-btn').textContent = state.isFirstTime ? 'Set Password' : 'Access Dashboard';
-    document.getElementById('add-user-btn').classList.toggle('hidden', !state.isFirstTime);
-    
+    document.getElementById('login-error').classList.add('hidden');
+    document.getElementById('login-error').textContent = '';
+    document.getElementById('user-email').value = '';
+    document.getElementById('password-input').value = '';
+    if (state.isFirstTime) {
+        document.getElementById('user-email').placeholder = 'Enter your email';
+        document.getElementById('password-input').placeholder = 'Set a password';
+        document.getElementById('login-btn').textContent = 'Setup Account';
+        document.getElementById('add-user-btn').classList.add('hidden');
+    } else {
+        document.getElementById('user-email').placeholder = 'Enter your email';
+        document.getElementById('password-input').placeholder = 'Enter your password';
+        document.getElementById('login-btn').textContent = 'Login';
+        document.getElementById('add-user-btn').classList.remove('hidden');
+    }
     renderUserList();
 }
 
 function renderUserList() {
-    const storedUsers = localStorage.getItem('ai-manager-users');
-    const users = storedUsers ? JSON.parse(storedUsers) : [];
-    const container = document.getElementById('user-list');
-    
-    if (users.length === 0) {
-        container.innerHTML = '<p style="color:var(--text-muted)">No users yet</p>';
-        return;
-    }
-    
-    container.innerHTML = users.map(email => 
-        `<button class="user-btn ${state.currentUser === email ? 'active' : ''}" onclick="selectUser('${email}')">${escapeHtml(email)}</button>`
-    ).join('');
+    var users = getUsers(), c = document.getElementById('user-list');
+    if (users.length === 0) { c.innerHTML = ''; return; }
+    c.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin-bottom:6px;width:100%">Quick Login:</p>' + users.map(function(e) { return '<button class="user-btn" onclick="selectUser(\'' + e + '\')">' + esc(e) + '</button>'; }).join('');
 }
 
-function selectUser(email) {
-    document.getElementById('user-email').value = email;
-    state.currentUser = email;
-    loadData();
-    renderUserList();
-}
+function selectUser(e) { document.getElementById('user-email').value = e; document.getElementById('password-input').focus(); }
 
 function showDashboard() {
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('dashboard-screen').classList.remove('hidden');
+    document.getElementById('login-error').classList.add('hidden');
+    document.getElementById('user-email').value = '';
+    document.getElementById('password-input').value = '';
     renderDashboard();
     updateHeaderDisplay();
 }
 
 function handleLogin() {
-    const email = document.getElementById('user-email').value.trim().toLowerCase();
-    const password = document.getElementById('password-input').value.trim();
-    
-    if (!email) return showLoginError('Enter email');
-    if (!password) return showLoginError('Enter password');
-    
-    if (state.isFirstTime) {
-        const confirm = prompt('Confirm password:');
-        if (password !== confirm) return showLoginError('Passwords mismatch');
-        
-        const users = JSON.parse(localStorage.getItem('ai-manager-users') || '[]');
-        users.push(email);
-        localStorage.setItem('ai-manager-users', JSON.stringify(users));
-        
-        localStorage.setItem('ai-manager-password-' + btoa(email), btoa(password));
-        
+    var email = document.getElementById('user-email').value.trim().toLowerCase();
+    var pw = document.getElementById('password-input').value.trim();
+    document.getElementById('login-error').classList.add('hidden');
+    if (!email) return showErr('Enter your email');
+    if (!pw) return showErr('Enter your password');
+    if (state.isFirstTime) doSetup(email, pw);
+    else doLogin(email, pw);
+}
+
+function doSetup(email, pw) {
+    var c = prompt('Confirm your password:');
+    if (pw !== c) return showErr('Passwords do not match');
+    var users = getUsers();
+    if (users.indexOf(email) >= 0) return showErr('Email already exists. Login instead.');
+    users.push(email);
+    saveUsers(users);
+    localStorage.setItem('aim-pw-' + btoa(email), btoa(pw));
+    state.currentUser = email;
+    localStorage.setItem('aim-current-user', email);
+    state.data = { accounts: [], projects: [] };
+    saveData();
+    toast('Account created!', 'success');
+    showDashboard();
+}
+
+function doLogin(email, pw) {
+    var stored = localStorage.getItem('aim-pw-' + btoa(email));
+    if (!stored) return showErr('Email not found. Click "Add New User" below.');
+    if (btoa(pw) === stored) {
         state.currentUser = email;
-        localStorage.setItem('ai-manager-current-user', email);
-        
+        localStorage.setItem('aim-current-user', email);
         loadData();
-        state.isFirstTime = false;
-        showToast('Account created!', 'success');
         showDashboard();
-    } else {
-        const storedPw = localStorage.getItem('ai-manager-password-' + btoa(email));
-        if (btoa(password) === storedPw) {
-            state.currentUser = email;
-            localStorage.setItem('ai-manager-current-user', email);
-            loadData();
-            showDashboard();
-        } else {
-            showLoginError('Wrong password');
-        }
-    }
-}
-    if (!password) return showLoginError('Enter password');
-    
-    if (state.isFirstTime) {
-        const confirm = prompt('Confirm password:');
-        if (password !== confirm) return showLoginError('Passwords mismatch');
-        localStorage.setItem('ai-manager-password', btoa(password));
-        state.isFirstTime = false;
-        showToast('Password set!', 'success');
-        showDashboard();
-    } else {
-        if (btoa(password) === localStorage.getItem('ai-manager-password')) {
-            showDashboard();
-        } else showLoginError('Wrong password');
-    }
+    } else showErr('Wrong password');
 }
 
-function showLoginError(msg) {
-    const e = document.getElementById('login-error');
-    e.textContent = msg;
-    e.classList.remove('hidden');
-}
-
-function setupEventListeners() {
-    document.getElementById('login-btn').addEventListener('click', handleLogin);
-    document.getElementById('password-input').addEventListener('keypress', e => { if (e.key === 'Enter') handleLogin(); });
-    document.getElementById('user-email').addEventListener('keypress', e => { if (e.key === 'Enter') handleLogin(); });
-    document.getElementById('add-user-btn').addEventListener('click', handleAddUser);
-    
-    document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
-    
-    document.getElementById('add-project-quick').addEventListener('click', () => showProjectModal());
-    document.getElementById('add-account-quick').addEventListener('click', () => showAccountModal());
-    document.getElementById('export-data-quick').addEventListener('click', exportData);
-    document.getElementById('switch-project-btn').addEventListener('click', showProjectSelector);
-    document.getElementById('add-project-btn').addEventListener('click', () => showProjectModal());
-    document.getElementById('add-account-btn').addEventListener('click', () => showAccountModal());
-    document.getElementById('export-data').addEventListener('click', exportData);
-    document.getElementById('import-data').addEventListener('click', () => document.getElementById('import-file').click());
-    document.getElementById('import-file').addEventListener('change', importData);
-    document.getElementById('change-password').addEventListener('click', changePassword);
-    document.getElementById('reset-all').addEventListener('click', resetAllData);
-    document.getElementById('modal-close').addEventListener('click', closeModal);
-    document.getElementById('modal-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
-    document.querySelectorAll('.filter-btn').forEach(btn => btn.addEventListener('click', handleFilter));
-    document.getElementById('menu-btn').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('hidden'));
-}
-
-function handleAddUser() {
-    const email = prompt('Enter new user email:');
+function addNewUser() {
+    var email = prompt('Enter new user email:');
     if (!email) return;
-    
-    const normalizedEmail = email.trim().toLowerCase();
-    const users = JSON.parse(localStorage.getItem('ai-manager-users') || '[]');
-    
-    if (users.includes(normalizedEmail)) {
-        return showToast('User already exists', 'warning');
-    }
-    
-    const password = prompt('Set password for ' + normalizedEmail + ':');
-    if (!password) return;
-    const confirm = prompt('Confirm password:');
-    if (password !== confirm) return showToast('Passwords mismatch', 'error');
-    
-    users.push(normalizedEmail);
-    localStorage.setItem('ai-manager-users', JSON.stringify(users));
-    localStorage.setItem('ai-manager-password-' + btoa(normalizedEmail), btoa(password));
-    
-    showToast('User added!', 'success');
+    email = email.trim().toLowerCase();
+    var users = getUsers();
+    if (users.indexOf(email) >= 0) return toast('Email already exists', 'warning');
+    var pw = prompt('Set password for ' + email + ':');
+    if (!pw) return;
+    var c = prompt('Confirm password:');
+    if (pw !== c) return toast('Passwords mismatch', 'error');
+    users.push(email);
+    saveUsers(users);
+    localStorage.setItem('aim-pw-' + btoa(email), btoa(pw));
+    toast('User added! Now login.', 'success');
     renderUserList();
 }
 
-function switchView(viewName) {
-    state.currentView = viewName;
-    document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === viewName));
-    document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === viewName + '-view'));
-    if (viewName === 'dashboard') renderDashboard();
-    else if (viewName === 'projects') renderProjects();
-    else if (viewName === 'accounts') renderAccounts();
+function showErr(m) { var e = document.getElementById('login-error'); e.textContent = m; e.classList.remove('hidden'); }
+function esc(s) { if (!s) return ''; return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function toast(m, t) { if (!t) t = 'success'; var d = document.createElement('div'); d.className = 'toast ' + t; d.textContent = m; document.getElementById('toast-container').appendChild(d); setTimeout(function() { d.remove(); }, 3000); }
+
+function setupEvents() {
+    document.getElementById('login-btn').addEventListener('click', handleLogin);
+    document.getElementById('password-input').addEventListener('keypress', function(e) { if (e.key === 'Enter') handleLogin(); });
+    document.getElementById('user-email').addEventListener('keypress', function(e) { if (e.key === 'Enter') handleLogin(); });
+    document.getElementById('add-user-btn').addEventListener('click', addNewUser);
+    document.querySelectorAll('.nav-item').forEach(function(i) { i.addEventListener('click', function() { switchView(i.dataset.view); }); });
+    document.getElementById('add-project-quick').addEventListener('click', function() { showProjectModal(); });
+    document.getElementById('add-account-quick').addEventListener('click', function() { showAccountModal(); });
+    document.getElementById('export-data-quick').addEventListener('click', exportData);
+    document.getElementById('switch-project-btn').addEventListener('click', showSwitchAI);
+    document.getElementById('add-project-btn').addEventListener('click', function() { showProjectModal(); });
+    document.getElementById('add-account-btn').addEventListener('click', function() { showAccountModal(); });
+    document.getElementById('export-data').addEventListener('click', exportData);
+    document.getElementById('import-data').addEventListener('click', function() { document.getElementById('import-file').click(); });
+    document.getElementById('import-file').addEventListener('change', importData);
+    document.getElementById('change-password').addEventListener('click', changePw);
+    document.getElementById('reset-all').addEventListener('click', resetAll);
+    document.getElementById('modal-close').addEventListener('click', closeModal);
+    document.getElementById('modal-overlay').addEventListener('click', function(e) { if (e.target === e.currentTarget) closeModal(); });
+    document.querySelectorAll('.filter-btn').forEach(function(b) { b.addEventListener('click', handleFilter); });
+    document.getElementById('menu-btn').addEventListener('click', function() { document.getElementById('sidebar').classList.toggle('hidden'); });
 }
 
-function renderDashboard() {
-    renderAccountsGrid();
-    renderProjectsGrid();
-    updateCurrentWorking();
+function switchView(v) {
+    state.currentView = v;
+    document.querySelectorAll('.nav-item').forEach(function(i) { i.classList.toggle('active', i.dataset.view === v); });
+    document.querySelectorAll('.view').forEach(function(vw) { vw.classList.toggle('active', vw.id === v + '-view'); });
+    if (v === 'dashboard') renderDashboard();
+    else if (v === 'projects') renderProjects();
+    else if (v === 'accounts') renderAccounts();
 }
+
+function renderDashboard() { renderAccountsGrid(); renderProjectsGrid(); updateWorking(); }
 
 function renderAccountsGrid() {
-    const accounts = state.data.accounts || [];
-    document.getElementById('accounts-count').textContent = accounts.length;
-    const grid = document.getElementById('accounts-grid');
-    
-    if (accounts.length === 0) {
-        grid.innerHTML = '<div class="empty-state"><div class="icon">👤</div><p>No AI accounts</p><button class="btn-primary" onclick="showAccountModal()">+ Add Account</button></div>';
-        return;
-    }
-    
-    grid.innerHTML = accounts.map(acc => {
-        const project = state.data.projects.find(p => p.id === acc.project_id);
-        const canUse = project && project.remaining_minutes > 0;
-        
-        return `
-        <div class="account-card">
-            <div class="card-top">
-                <span class="card-provider">${getProviderIcon(acc.provider)}</span>
-                <span class="card-status ${acc.is_active ? 'active' : 'inactive'}"></span>
-            </div>
-            <div class="card-email">${escapeHtml(acc.email)}</div>
-            <div class="card-provider-name">${acc.provider}</div>
-            ${project ? `
-            <div class="card-project">${escapeHtml(project.name)}</div>
-            <div class="card-timer ${getTimerClass(project.remaining_minutes)}">${formatTime(project.remaining_minutes)}</div>
-            <div class="card-reset">Reset: ${project.reset_date || 'Not set'}</div>
-            ` : '<div class="card-project">No project</div>'}
-            <div class="card-actions">
-                <button class="btn-secondary" onclick="useAccount(${acc.id})" ${!canUse ? 'disabled' : ''}>Use</button>
-                <button class="btn-secondary" onclick="editAccount(${acc.id})">Edit</button>
-                <button class="btn-danger" onclick="deleteAccount(${acc.id})">Del</button>
-            </div>
-        </div>`;
+    var accts = state.data.accounts || [];
+    document.getElementById('accounts-count').textContent = accts.length;
+    var g = document.getElementById('accounts-grid');
+    if (!accts.length) { g.innerHTML = '<div class="empty-state"><div class="icon">👤</div><p>No AI accounts</p><button class="btn-primary" onclick="showAccountModal()">+ Add Account</button></div>'; return; }
+    g.innerHTML = accts.map(function(a) {
+        var proj = state.data.projects.find(function(p) { return p.id === a.project_id; });
+        var can = proj && proj.remaining_minutes > 0;
+        return '<div class="account-card"><div class="card-top"><span class="card-provider">' + provIcon(a.provider) + '</span><span class="card-status ' + (a.is_active ? 'active' : 'inactive') + '"></span></div>' +
+            '<div class="card-email">' + esc(a.email) + '</div><div class="card-provider-name">' + a.provider + '</div>' +
+            (proj ? '<div class="card-project">' + esc(proj.name) + '</div><div class="card-timer ' + timerClass(proj.remaining_minutes) + '">' + fmt(proj.remaining_minutes) + '</div><div class="card-reset">Reset: ' + (proj.reset_date || 'Not set') + '</div>' : '<div class="card-project">No project</div>') +
+            '<div class="card-actions"><button class="btn-secondary" onclick="useAccount(' + a.id + ')"' + (can ? '' : ' disabled') + '>Use</button><button class="btn-secondary" onclick="editAccount(' + a.id + ')">Edit</button><button class="btn-danger" onclick="deleteAccount(' + a.id + ')">Del</button></div></div>';
     }).join('');
 }
 
 function renderProjectsGrid() {
-    const projects = state.data.projects || [];
-    document.getElementById('projects-count').textContent = projects.length;
-    const grid = document.getElementById('projects-grid');
-    
-    if (projects.length === 0) {
-        grid.innerHTML = '<div class="empty-state"><div class="icon">📁</div><p>No projects</p><button class="btn-primary" onclick="showProjectModal()">+ Add Project</button></div>';
-        return;
-    }
-    
-    grid.innerHTML = projects.map(proj => {
-        const linkedAccounts = state.data.accounts.filter(a => a.project_id === proj.id);
-        
-        return `
-        <div class="project-card">
-            <div class="card-top">
-                <span class="card-name">${escapeHtml(proj.name)}</span>
-                <span class="status-badge ${proj.status}">${proj.status}</span>
-            </div>
-            <div class="project-timer">Time: ${formatTime(proj.remaining_minutes)}</div>
-            <div class="project-reset">Next reset: ${proj.reset_date || '-'}</div>
-            ${proj.notes ? `<div class="card-notes">${escapeHtml(proj.notes)}</div>` : ''}
-            ${linkedAccounts.length > 0 ? `<div class="linked-accounts">Linked: ${linkedAccounts.map(a => a.provider).join(', ')}</div>` : ''}
-            <div class="card-actions">
-                <button class="btn-secondary" onclick="startProjectTimer(${proj.id})">Start Timer</button>
-                <button class="btn-secondary" onclick="editProject(${proj.id})">Edit</button>
-                <button class="btn-danger" onclick="deleteProject(${proj.id})">Del</button>
-            </div>
-        </div>`;
+    var projs = state.data.projects || [];
+    document.getElementById('projects-count').textContent = projs.length;
+    var g = document.getElementById('projects-grid');
+    if (!projs.length) { g.innerHTML = '<div class="empty-state"><div class="icon">📁</div><p>No projects</p><button class="btn-primary" onclick="showProjectModal()">+ Add Project</button></div>'; return; }
+    g.innerHTML = projs.map(function(p) {
+        var linked = state.data.accounts.filter(function(a) { return a.project_id === p.id; });
+        return '<div class="project-card"><div class="card-top"><span class="card-name">' + esc(p.name) + '</span><span class="status-badge ' + p.status + '">' + p.status + '</span></div>' +
+            '<div class="project-timer">Time: ' + fmt(p.remaining_minutes) + '</div><div class="project-reset">Reset: ' + (p.reset_date || '-') + '</div>' +
+            (p.notes ? '<div class="card-notes">' + esc(p.notes) + '</div>' : '') +
+            (linked.length ? '<div class="linked-accounts">Linked: ' + linked.map(function(a) { return a.provider; }).join(', ') + '</div>' : '') +
+            '<div class="card-actions"><button class="btn-secondary" onclick="startTimer(' + p.id + ')">Start</button><button class="btn-secondary" onclick="editProject(' + p.id + ')">Edit</button><button class="btn-danger" onclick="deleteProject(' + p.id + ')">Del</button></div></div>';
     }).join('');
 }
 
 function renderProjects() {
-    const projects = state.data.projects || [];
-    const list = document.getElementById('projects-list');
-    
-    if (projects.length === 0) {
-        list.innerHTML = '<div class="empty-state"><div class="icon">📁</div><p>No projects</p><button class="btn-primary" onclick="showProjectModal()">+ Add Project</button></div>';
-        return;
-    }
-    
-    list.innerHTML = projects.map(proj => `
-    <div class="project-card">
-        <div class="card-top">
-            <span class="card-name">${escapeHtml(proj.name)}</span>
-            <span class="status-badge ${proj.status}">${proj.status}</span>
-        </div>
-        <div class="project-timer">Time: ${formatTime(proj.remaining_minutes)}</div>
-        <div class="project-reset">Next reset: ${proj.reset_date || '-'}</div>
-        ${proj.notes ? `<div class="card-notes">${escapeHtml(proj.notes)}</div>` : ''}
-        <div class="card-actions">
-            <button class="btn-secondary" onclick="editProject(${proj.id})">Edit</button>
-            <button class="btn-danger" onclick="deleteProject(${proj.id})">Del</button>
-        </div>
-    </div>`).join('');
-}
-
-function renderAccounts() {
-    const accounts = state.data.accounts || [];
-    const list = document.getElementById('accounts-list');
-    
-    if (accounts.length === 0) {
-        list.innerHTML = '<div class="empty-state"><div class="icon">👤</div><p>No accounts</p><button class="btn-primary" onclick="showAccountModal()">+ Add Account</button></div>';
-        return;
-    }
-    
-    list.innerHTML = accounts.map(acc => {
-        const project = state.data.projects.find(p => p.id === acc.project_id);
-        return `
-        <div class="account-card">
-            <div class="card-top">
-                <span class="card-provider">${getProviderIcon(acc.provider)}</span>
-                <span class="card-status ${acc.is_active ? 'active' : 'inactive'}"></span>
-            </div>
-            <div class="card-email">${escapeHtml(acc.email)}</div>
-            <div class="card-provider-name">${acc.provider}</div>
-            ${project ? `<div class="card-project">${escapeHtml(project.name)}</div>` : ''}
-            <div class="card-actions">
-                <button class="btn-secondary" onclick="useAccount(${acc.id})">Use</button>
-                <button class="btn-secondary" onclick="editAccount(${acc.id})">Edit</button>
-                <button class="btn-danger" onclick="deleteAccount(${acc.id})">Del</button>
-            </div>
-        </div>`;
+    var projs = state.data.projects || [];
+    var l = document.getElementById('projects-list');
+    if (!projs.length) { l.innerHTML = '<div class="empty-state"><div class="icon">📁</div><p>No projects</p><button class="btn-primary" onclick="showProjectModal()">+ Add Project</button></div>'; return; }
+    l.innerHTML = projs.map(function(p) {
+        return '<div class="project-card"><div class="card-top"><span class="card-name">' + esc(p.name) + '</span><span class="status-badge ' + p.status + '">' + p.status + '</span></div>' +
+            '<div class="project-timer">Time: ' + fmt(p.remaining_minutes) + '</div><div class="project-reset">Reset: ' + (p.reset_date || '-') + '</div>' +
+            (p.notes ? '<div class="card-notes">' + esc(p.notes) + '</div>' : '') +
+            '<div class="card-actions"><button class="btn-secondary" onclick="editProject(' + p.id + ')">Edit</button><button class="btn-danger" onclick="deleteProject(' + p.id + ')">Del</button></div></div>';
     }).join('');
 }
 
-function updateCurrentWorking() {
-    const activeProjects = state.data.projects.filter(p => p.status === 'ongoing' && p.remaining_minutes > 0);
-    
-    const container = document.getElementById('multi-working');
-    
-    if (activeProjects.length === 0) {
-        container.innerHTML = '<p class="empty-text">No active projects</p>';
-        return;
-    }
-    
-    container.innerHTML = activeProjects.map(proj => {
-        const linkedAccount = state.data.accounts.find(a => a.project_id === proj.id && a.is_active);
-        return `
-        <div class="multi-working-item">
-            <div class="project-info">
-                <span class="provider-icon">${linkedAccount ? getProviderIcon(linkedAccount.provider) : '📁'}</span>
-                <span class="project-name">${escapeHtml(proj.name)}</span>
-            </div>
-            <span class="timer ${getTimerClass(proj.remaining_minutes)}">${formatTime(proj.remaining_minutes)}</span>
-        </div>
-        `;
+function renderAccounts() {
+    var accts = state.data.accounts || [];
+    var l = document.getElementById('accounts-list');
+    if (!accts.length) { l.innerHTML = '<div class="empty-state"><div class="icon">👤</div><p>No accounts</p><button class="btn-primary" onclick="showAccountModal()">+ Add Account</button></div>'; return; }
+    l.innerHTML = accts.map(function(a) {
+        var proj = state.data.projects.find(function(p) { return p.id === a.project_id; });
+        return '<div class="account-card"><div class="card-top"><span class="card-provider">' + provIcon(a.provider) + '</span><span class="card-status ' + (a.is_active ? 'active' : 'inactive') + '"></span></div>' +
+            '<div class="card-email">' + esc(a.email) + '</div><div class="card-provider-name">' + a.provider + '</div>' +
+            (proj ? '<div class="card-project">' + esc(proj.name) + '</div>' : '') +
+            '<div class="card-actions"><button class="btn-secondary" onclick="useAccount(' + a.id + ')">Use</button><button class="btn-secondary" onclick="editAccount(' + a.id + ')">Edit</button><button class="btn-danger" onclick="deleteAccount(' + a.id + ')">Del</button></div></div>';
+    }).join('');
+}
+
+function updateWorking() {
+    var active = state.data.projects.filter(function(p) { return p.status === 'ongoing' && p.remaining_minutes > 0; });
+    var c = document.getElementById('multi-working');
+    if (!active.length) { c.innerHTML = '<p class="empty-text">No active projects</p>'; return; }
+    c.innerHTML = active.map(function(p) {
+        var acc = state.data.accounts.find(function(a) { return a.project_id === p.id && a.is_active; });
+        return '<div class="multi-working-item"><div class="project-info"><span class="provider-icon">' + (acc ? provIcon(acc.provider) : '📁') + '</span><span class="project-name">' + esc(p.name) + '</span></div><span class="timer ' + timerClass(p.remaining_minutes) + '">' + fmt(p.remaining_minutes) + '</span></div>';
     }).join('');
 }
 
 function updateHeaderDisplay() {
-    const activeProjects = state.data.projects.filter(p => p.status === 'ongoing' && p.remaining_minutes > 0);
-    
-    if (state.currentUser) {
-        document.getElementById('current-user-display').textContent = state.currentUser;
-    }
-    
-    if (activeProjects.length > 0) {
-        const proj = activeProjects[0];
-        document.getElementById('current-project-name').textContent = proj.name;
-        document.getElementById('current-project-status').textContent = proj.status;
-        const linkedAccount = state.data.accounts.find(a => a.project_id === proj.id && a.is_active);
-        document.getElementById('current-account-timer').textContent = formatTime(proj.remaining_minutes);
+    var active = state.data.projects.filter(function(p) { return p.status === 'ongoing' && p.remaining_minutes > 0; });
+    if (state.currentUser) document.getElementById('current-user-display').textContent = state.currentUser;
+    if (active.length) {
+        var p = active[0];
+        document.getElementById('current-project-name').textContent = p.name;
+        document.getElementById('current-project-status').textContent = p.status;
+        document.getElementById('current-account-timer').textContent = fmt(p.remaining_minutes);
     } else {
         document.getElementById('current-project-name').textContent = 'No Project';
         document.getElementById('current-project-status').textContent = '-';
@@ -387,508 +223,203 @@ function updateHeaderDisplay() {
     }
 }
 
-function startTimerLoop() {
-    setInterval(() => {
-        state.data.projects.forEach(proj => {
-            const linkedAccount = state.data.accounts.find(a => a.project_id === proj.id && a.is_active);
-            if (linkedAccount && proj.remaining_minutes > 0) {
-                proj.remaining_minutes--;
-            }
-        });
-        
-        saveData();
-        
-        if (!document.getElementById('dashboard-screen').classList.contains('hidden')) {
-            if (state.currentView === 'dashboard') {
-                renderAccountsGrid();
-                renderProjectsGrid();
-                updateCurrentWorking();
-                updateHeaderDisplay();
-            }
-        }
-    }, 60000);
-}
+function startTimerLoop() { setInterval(function() {
+    state.data.projects.forEach(function(p) {
+        var acc = state.data.accounts.find(function(a) { return a.project_id === p.id && a.is_active; });
+        if (acc && p.remaining_minutes > 0) p.remaining_minutes--;
+    });
+    saveData();
+    if (!document.getElementById('dashboard-screen').classList.contains('hidden') && state.currentView === 'dashboard') { renderAccountsGrid(); renderProjectsGrid(); updateWorking(); updateHeaderDisplay(); }
+}, 60000); }
 
-function formatTime(minutes) {
-    if (!minutes || minutes < 0) return '00:00:00';
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:00`;
-}
+function fmt(m) { if (!m || m < 0) return '00:00:00'; var h = Math.floor(m/60), r = m%60; return String(h).padStart(2,'0') + ':' + String(r).padStart(2,'0') + ':00'; }
+function timerClass(m) { if (m <= 0) return 'timer-expired'; if (m <= 30) return 'timer-warning'; return 'timer-active'; }
+function provIcon(p) { var i = {'Claude':'🔵','Codex':'⚡','Grok':'🚀','ChatGPT':'💬','Gemini':'🌟','DeepSeek':'🔮'}; return i[p] || '🤖'; }
 
-function getTimerClass(minutes) {
-    if (minutes <= 0) return 'timer-expired';
-    if (minutes <= 30) return 'timer-warning';
-    return 'timer-active';
-}
-
-function showProjectModal(projectId = null) {
-    const isEdit = projectId !== null;
-    let project = { name: '', status: 'ongoing', notes: '', time_limit_minutes: 120, reset_date: '' };
-    
-    if (isEdit) {
-        project = state.data.projects.find(p => p.id === projectId) || project;
-    }
-    
+function showProjectModal(id) {
+    var isEdit = id != null, p = isEdit ? state.data.projects.find(function(x) { return x.id === id; }) : null;
+    p = p || { name: '', status: 'ongoing', notes: '', time_limit_minutes: 120, reset_date: '' };
     document.getElementById('modal-title').textContent = isEdit ? 'Edit Project' : 'Add Project';
-    document.getElementById('modal-body').innerHTML = `
-        <div class="form-group">
-            <label>Project Name *</label>
-            <input type="text" id="project-name" value="${escapeHtml(project.name)}" placeholder="Project A">
-        </div>
-        <div class="form-row">
-            <div class="form-group">
-                <label>Time Limit (minutes)</label>
-                <input type="number" id="project-time-limit" value="${project.time_limit_minutes}" min="1">
-            </div>
-            <div class="form-group">
-                <label>Reset Date (IST)</label>
-                <input type="datetime-local" id="project-reset-date" value="${project.reset_date}">
-            </div>
-        </div>
-        <div class="form-group">
-            <label>Status</label>
-            <select id="project-status">
-                <option value="ongoing" ${project.status === 'ongoing' ? 'selected' : ''}>Ongoing</option>
-                <option value="completed" ${project.status === 'completed' ? 'selected' : ''}>Completed</option>
-                <option value="future" ${project.status === 'future' ? 'selected' : ''}>Future</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Notes</label>
-            <textarea id="project-notes">${escapeHtml(project.notes)}</textarea>
-        </div>
-    `;
-    document.getElementById('modal-footer').innerHTML = `
-        <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn-primary" onclick="saveProject(${projectId})">${isEdit ? 'Update' : 'Create'}</button>
-    `;
+    document.getElementById('modal-body').innerHTML = '<div class="form-group"><label>Project Name *</label><input type="text" id="pn" value="' + esc(p.name) + '"></div>' +
+        '<div class="form-row"><div class="form-group"><label>Time Limit (min)</label><input type="number" id="ptl" value="' + p.time_limit_minutes + '" min="1"></div>' +
+        '<div class="form-group"><label>Reset Date</label><input type="datetime-local" id="prd" value="' + p.reset_date + '"></div></div>' +
+        '<div class="form-group"><label>Status</label><select id="ps"><option value="ongoing"' + (p.status==='ongoing'?' selected':'') + '>Ongoing</option><option value="completed"' + (p.status==='completed'?' selected':'') + '>Completed</option><option value="future"' + (p.status==='future'?' selected':'') + '>Future</option></select></div>' +
+        '<div class="form-group"><label>Notes</label><textarea id="pnotes">' + esc(p.notes) + '</textarea></div>';
+    document.getElementById('modal-footer').innerHTML = '<button class="btn-secondary" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="saveProject(' + (isEdit?id:'null') + ')">' + (isEdit?'Update':'Create') + '</button>';
     openModal();
 }
 
-function saveProject(projectId = null) {
-    const name = document.getElementById('project-name').value.trim();
-    const timeLimit = parseInt(document.getElementById('project-time-limit').value) || 120;
-    const resetDate = document.getElementById('project-reset-date').value;
-    const status = document.getElementById('project-status').value;
-    const notes = document.getElementById('project-notes').value.trim();
-    
-    if (!name) return showToast('Enter name', 'error');
-    
-    if (projectId) {
-        const idx = state.data.projects.findIndex(p => p.id === projectId);
-        if (idx >= 0) {
-            state.data.projects[idx] = { ...state.data.projects[idx], name, time_limit_minutes: timeLimit, reset_date: resetDate, status, notes };
-        }
-        showToast('Updated!', 'success');
-    } else {
-        const newId = state.data.projects.length > 0 ? Math.max(...state.data.projects.map(p => p.id)) + 1 : 1;
-        state.data.projects.push({
-            id: newId, name, time_limit_minutes: timeLimit, remaining_minutes: timeLimit,
-            reset_date: resetDate, status, notes, created_at: new Date().toISOString()
-        });
-        showToast('Created!', 'success');
-    }
-    
-    saveData();
-    closeModal();
-    refreshView();
+function saveProject(id) {
+    var n = document.getElementById('pn').value.trim(), tl = parseInt(document.getElementById('ptl').value)||120, rd = document.getElementById('prd').value, s = document.getElementById('ps').value, notes = document.getElementById('pnotes').value.trim();
+    if (!n) return toast('Enter name', 'error');
+    if (id) { var i = state.data.projects.findIndex(function(p){return p.id===id;}); if(i>=0) Object.assign(state.data.projects[i], {name:n,time_limit_minutes:tl,reset_date:rd,status:s,notes:notes}); }
+    else { var nid = state.data.projects.length?Math.max.apply(null,state.data.projects.map(function(p){return p.id;}))+1:1; state.data.projects.push({id:nid,name:n,time_limit_minutes:tl,remaining_minutes:tl,reset_date:rd,status:s,notes:notes,created_at:new Date().toISOString()}); }
+    saveData(); closeModal(); refresh();
 }
 
 function editProject(id) { showProjectModal(id); }
+function deleteProject(id) { if(!confirm('Delete?'))return; state.data.projects=state.data.projects.filter(function(p){return p.id!==id;}); state.data.accounts.forEach(function(a){if(a.project_id===id)a.project_id=null;}); toast('Deleted','success'); saveData(); refresh(); }
+function startTimer(id) { var p=state.data.projects.find(function(x){return x.id===id;}); if(!p)return; localStorage.setItem('aim-current-project',id); toast('Started: '+p.name,'success'); refresh(); }
 
-function deleteProject(id) {
-    if (!confirm('Delete project?')) return;
-    state.data.projects = state.data.projects.filter(p => p.id !== id);
-    state.data.accounts.forEach(a => { if (a.project_id === id) a.project_id = null; });
-    showToast('Deleted', 'success');
-    saveData();
-    refreshView();
-}
-
-function startProjectTimer(id) {
-    const proj = state.data.projects.find(p => p.id === id);
-    if (!proj) return;
-    localStorage.setItem('ai-manager-current-project', id);
-    showToast(`Timer started for ${proj.name}`, 'success');
-    refreshView();
-}
-
-function setCurrentProject(id) {
-    localStorage.setItem('ai-manager-current-project', id);
-    showToast('Project set!', 'success');
-    refreshView();
-}
-
-function showAccountModal(accountId = null) {
-    const isEdit = accountId !== null;
-    let account = { email: '', provider: 'Claude', project_id: null };
-    
-    if (isEdit) {
-        account = state.data.accounts.find(a => a.id === accountId) || account;
-    }
-    
-    const providers = ['Claude', 'Codex', 'Grok', 'ChatGPT', 'Gemini', 'DeepSeek'];
-    const projects = state.data.projects;
-    
+function showAccountModal(id) {
+    var isEdit = id != null, a = isEdit ? state.data.accounts.find(function(x){return x.id===id;}) : null;
+    a = a || {email:'',provider:'Claude',project_id:null};
+    var projs = state.data.projects;
     document.getElementById('modal-title').textContent = isEdit ? 'Edit Account' : 'Add Account';
-    document.getElementById('modal-body').innerHTML = `
-        <div class="form-group">
-            <label>Email *</label>
-            <input type="email" id="account-email" value="${escapeHtml(account.email)}" placeholder="email@example.com">
-        </div>
-        <div class="form-group">
-            <label>Provider</label>
-            <select id="account-provider">
-                ${providers.map(p => `<option value="${p}" ${account.provider === p ? 'selected' : ''}>${p}</option>`).join('')}
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Link to Project</label>
-            <select id="account-project">
-                <option value="">-- Select Project --</option>
-                ${projects.map(p => `<option value="${p.id}" ${account.project_id === p.id ? 'selected' : ''}>${escapeHtml(p.name)} (${p.time_limit_minutes}m)</option>`).join('')}
-            </select>
-        </div>
-    `;
-    document.getElementById('modal-footer').innerHTML = `
-        <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn-primary" onclick="saveAccount(${accountId})">${isEdit ? 'Update' : 'Create'}</button>
-    `;
+    document.getElementById('modal-body').innerHTML = '<div class="form-group"><label>Email *</label><input type="email" id="ae" value="'+esc(a.email)+'"></div>' +
+        '<div class="form-group"><label>Provider</label><select id="ap"><option value="Claude">Claude</option><option value="Codex">Codex</option><option value="Grok">Grok</option><option value="ChatGPT">ChatGPT</option><option value="Gemini">Gemini</option><option value="DeepSeek">DeepSeek</option></select></div>' +
+        '<div class="form-group"><label>Link Project</label><select id="aproj"><option value="">-- Select --</option>' + projs.map(function(p){return '<option value="'+p.id+'"'+(a.project_id===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('') + '</select></div>';
+    document.getElementById('modal-footer').innerHTML = '<button class="btn-secondary" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="saveAccount('+(isEdit?id:'null')+')">'+(isEdit?'Update':'Create')+'</button>';
+    setTimeout(function(){ document.getElementById('ap').value = a.provider; }, 50);
     openModal();
 }
 
-function saveAccount(accountId = null) {
-    const email = document.getElementById('account-email').value.trim();
-    const provider = document.getElementById('account-provider').value;
-    const projectId = document.getElementById('account-project').value ? parseInt(document.getElementById('account-project').value) : null;
-    
-    if (!email) return showToast('Enter email', 'error');
-    
-    if (accountId) {
-        const idx = state.data.accounts.findIndex(a => a.id === accountId);
-        if (idx >= 0) {
-            state.data.accounts[idx] = { ...state.data.accounts[idx], email, provider, project_id: projectId };
-        }
-        showToast('Updated!', 'success');
-    } else {
-        const newId = state.data.accounts.length > 0 ? Math.max(...state.data.accounts.map(a => a.id)) + 1 : 1;
-        state.data.accounts.push({ id: newId, email, provider, project_id: projectId, is_active: false, created_at: new Date().toISOString() });
-        showToast('Created!', 'success');
-    }
-    
-    saveData();
-    closeModal();
-    refreshView();
+function saveAccount(id) {
+    var email = document.getElementById('ae').value.trim(), prov = document.getElementById('ap').value, projId = document.getElementById('aproj').value ? parseInt(document.getElementById('aproj').value) : null;
+    if (!email) return toast('Enter email', 'error');
+    if (id) { var i = state.data.accounts.findIndex(function(a){return a.id===id;}); if(i>=0) Object.assign(state.data.accounts[i], {email:email,provider:prov,project_id:projId}); }
+    else { var nid = state.data.accounts.length?Math.max.apply(null,state.data.accounts.map(function(a){return a.id;}))+1:1; state.data.accounts.push({id:nid,email:email,provider:prov,project_id:projId,is_active:false,created_at:new Date().toISOString()}); }
+    saveData(); closeModal(); refresh();
 }
 
 function editAccount(id) { showAccountModal(id); }
-
-function deleteAccount(id) {
-    if (!confirm('Delete account?')) return;
-    state.data.accounts = state.data.accounts.filter(a => a.id !== id);
-    showToast('Deleted', 'success');
-    saveData();
-    refreshView();
-}
+function deleteAccount(id) { if(!confirm('Delete?'))return; state.data.accounts=state.data.accounts.filter(function(a){return a.id!==id;}); toast('Deleted','success'); saveData(); refresh(); }
 
 function useAccount(id) {
-    const account = state.data.accounts.find(a => a.id === id);
-    if (!account) return;
+    var acc = state.data.accounts.find(function(a){return a.id===id;});
+    if(!acc)return;
+    if(!acc.project_id)return toast('Link to project first','warning');
+    var proj = state.data.projects.find(function(p){return p.id===acc.project_id;});
+    if(!proj||proj.remaining_minutes<=0)return toast('No time left','warning');
     
-    if (!account.project_id) return showToast('Link account to project first', 'warning');
+    var prevId = localStorage.getItem('aim-active-account');
+    var prevProjId = localStorage.getItem('aim-current-project');
     
-    const proj = state.data.projects.find(p => p.id === account.project_id);
-    if (!proj || proj.remaining_minutes <= 0) return showToast('No time left', 'warning');
-    
-    const prevActiveId = localStorage.getItem('ai-manager-active-account');
-    const prevProjectId = localStorage.getItem('ai-manager-current-project');
-    
-    if (prevActiveId && prevActiveId != id) {
-        const switchModal = document.getElementById('switch-modal');
-        if (switchModal) {
-            switchModal.remove();
-        }
-        
-        const prevProj = state.data.projects.find(p => p.id == prevProjectId);
-        if (prevProj) {
-            const body = document.body;
-            const modal = document.createElement('div');
-            modal.id = 'switch-modal';
-            modal.className = 'switch-modal';
-            modal.innerHTML = `
-                <div class="switch-modal-content">
-                    <h3>Switch AI?</h3>
-                    <p>Previous: <strong>${prevProj.name}</strong> will reset at:</p>
-                    <input type="datetime-local" id="switch-reset-time" value="${getNextResetDate()}">
-                    <div class="switch-modal-actions">
-                        <button class="btn-secondary" onclick="document.getElementById('switch-modal').remove()">Cancel</button>
-                        <button class="btn-primary" onclick="confirmSwitch(${id}, ${prevProjectId})">Switch</button>
-                    </div>
-                </div>
-            `;
-            body.appendChild(modal);
+    if(prevId && prevId != id) {
+        var prevProj = state.data.projects.find(function(p){return p.id==prevProjId;});
+        if(prevProj) {
+            var existing = document.getElementById('swmodal');
+            if(existing) existing.remove();
+            document.body.innerHTML += '<div id="swmodal" class="switch-modal"><div class="switch-modal-content"><h3>Switch AI?</h3><p>Previous project "'+esc(prevProj.name)+'" will reset at:</p><input type="datetime-local" id="swtime" value="'+nextReset()+'"><div class="switch-modal-actions"><button class="btn-secondary" onclick="document.getElementById(\'swmodal\').remove()">Cancel</button><button class="btn-primary" onclick="doSwitch('+id+','+prevProjId+')">Switch</button></div></div></div>';
             return;
         }
     }
-    
-    activateAccount(id, account.project_id);
+    activateAccount(id, acc.project_id);
 }
 
-function confirmSwitch(newAccountId, prevProjectId) {
-    const resetTime = document.getElementById('switch-reset-time').value;
-    const prevProj = state.data.projects.find(p => p.id === prevProjectId);
-    if (prevProj) {
-        prevProj.remaining_minutes = 0;
-        prevProj.reset_date = resetTime;
-    }
-    document.getElementById('switch-modal').remove();
-    
-    const newAccount = state.data.accounts.find(a => a.id === newAccountId);
-    activateAccount(newAccountId, newAccount.project_id);
+function doSwitch(newId, prevPid) {
+    var t = document.getElementById('swtime').value;
+    var pp = state.data.projects.find(function(p){return p.id===prevPid;});
+    if(pp){pp.remaining_minutes=0;pp.reset_date=t;}
+    document.getElementById('swmodal').remove();
+    var na = state.data.accounts.find(function(a){return a.id===newId;});
+    activateAccount(newId, na.project_id);
 }
 
-function activateAccount(accountId, projectId) {
-    const account = state.data.accounts.find(a => a.id === accountId);
-    const proj = state.data.projects.find(p => p.id === projectId);
-    
-    localStorage.setItem('ai-manager-current-project', projectId);
-    localStorage.setItem('ai-manager-active-account', accountId);
-    
-    state.data.accounts.forEach(a => a.is_active = false);
-    account.is_active = true;
-    
-    showToast(`Using ${account.provider} on ${proj.name}`, 'success');
-    saveData();
-    refreshView();
+function activateAccount(accId, projId) {
+    localStorage.setItem('aim-current-project', projId);
+    localStorage.setItem('aim-active-account', accId);
+    state.data.accounts.forEach(function(a){a.is_active=false;});
+    state.data.accounts.find(function(a){return a.id===accId;}).is_active=true;
+    var acc = state.data.accounts.find(function(a){return a.id===accId;});
+    var proj = state.data.projects.find(function(p){return p.id===projId;});
+    toast('Using '+acc.provider+' on '+proj.name, 'success');
+    saveData(); refresh();
 }
 
-function getNextResetDate() {
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(3, 0, 0, 0);
-    return tomorrow.toISOString().slice(0, 16);
-}
+function nextReset() { var d=new Date(); d.setDate(d.getDate()+1); d.setHours(3,0,0,0); return d.toISOString().slice(0,16); }
 
-function showProjectSelector() {
-    const projects = state.data.projects.filter(p => p.status === 'ongoing');
-    const allAccounts = state.data.accounts;
-    
-    if (projects.length === 0) return showToast('No ongoing projects', 'warning');
-    
-    let options = '';
-    projects.forEach(proj => {
-        const linkedAccounts = allAccounts.filter(a => a.project_id === proj.id);
-        const activeAcc = linkedAccounts.find(a => a.is_active);
-        const timeLeft = formatTime(proj.remaining_minutes);
-        const status = proj.remaining_minutes > 0 ? 'active' : 'depleted';
-        
-        options += `<option value="${proj.id}">${proj.name} - ${timeLeft} [${status}]</option>`;
-        
-        if (linkedAccounts.length > 0) {
-            linkedAccounts.forEach(acc => {
-                options += `<option value="${proj.id}_${acc.id}" disabled>   ↳ ${acc.provider}: ${acc.email}</option>`;
-            });
-        }
-    });
-    
+function showSwitchAI() {
+    var projs = state.data.projects.filter(function(p){return p.status==='ongoing';});
+    if(!projs.length)return toast('No ongoing projects','warning');
+    var opts = projs.map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+' - '+fmt(p.remaining_minutes)+'</option>';}).join('');
     document.getElementById('modal-title').textContent = 'Switch AI';
-    document.getElementById('modal-body').innerHTML = `
-        <div class="form-group">
-            <label>Select Project</label>
-            <select id="switch-project-select">${options}</select>
-        </div>
-        <div class="form-group">
-            <label>Select Account</label>
-            <select id="switch-account-select">
-                <option value="">-- Select after project --</option>
-            </select>
-        </div>
-    `;
-    
-    document.getElementById('modal-footer').innerHTML = `
-        <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn-primary" onclick="switchToNewAccount()">Switch</button>
-    `;
-    
-    document.getElementById('switch-project-select').addEventListener('change', updateAccountDropdown);
+    document.getElementById('modal-body').innerHTML = '<div class="form-group"><label>Project</label><select id="ssproj">'+opts+'</select></div><div class="form-group"><label>Account</label><select id="ssacct"></select></div>';
+    document.getElementById('modal-footer').innerHTML = '<button class="btn-secondary" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="switchAI()">Switch</button>';
+    document.getElementById('ssproj').addEventListener('change', updAcctDD);
+    updAcctDD();
     openModal();
 }
 
-function updateAccountDropdown() {
-    const projectId = parseInt(document.getElementById('switch-project-select').value.split('_')[0]);
-    const linkedAccounts = state.data.accounts.filter(a => a.project_id === projectId);
-    
-    const accountSelect = document.getElementById('switch-account-select');
-    accountSelect.innerHTML = linkedAccounts.map(acc => 
-        `<option value="${acc.id}">${acc.provider} - ${acc.email}</option>`
-    ).join('');
-    
-    if (linkedAccounts.length === 0) {
-        accountSelect.innerHTML = '<option value="">No accounts linked</option>';
-    }
+function updAcctDD() {
+    var pid = parseInt(document.getElementById('ssproj').value);
+    var accts = state.data.accounts.filter(function(a){return a.project_id===pid;});
+    document.getElementById('ssacct').innerHTML = accts.length ? accts.map(function(a){return '<option value="'+a.id+'">'+a.provider+' - '+esc(a.email)+'</option>';}).join('') : '<option value="">None</option>';
 }
 
-function switchToNewAccount() {
-    const selection = document.getElementById('switch-project-select').value;
-    const accountId = document.getElementById('switch-account-select').value;
-    
-    if (!accountId) return showToast('Select account', 'warning');
-    
-    const projId = parseInt(selection.split('_')[0]);
-    confirmSwitch(parseInt(accountId), projId);
+function switchAI() {
+    var aid = parseInt(document.getElementById('ssacct').value);
+    if(!aid)return toast('Select account','warning');
+    activateAccount(aid, parseInt(document.getElementById('ssproj').value));
 }
 
 function handleFilter(e) {
-    const filter = e.target.dataset.filter;
-    const view = e.target.closest('.view').id.replace('-view', '');
-    
-    document.querySelectorAll(`#${view}-view .filter-btn`).forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.filter === filter);
-    });
-    
-    if (view === 'projects') renderFilteredProjects(filter);
-    else if (view === 'accounts') renderFilteredAccounts(filter);
+    var f = e.target.dataset.filter, v = e.target.closest('.view').id.replace('-view','');
+    document.querySelectorAll('#'+v+'-view .filter-btn').forEach(function(b){b.classList.toggle('active',b.dataset.filter===f);});
+    if(v==='projects') renderFProjects(f); else if(v==='accounts') renderFAccounts(f);
 }
 
-function renderFilteredProjects(filter) {
-    let projects = state.data.projects;
-    if (filter !== 'all') projects = projects.filter(p => p.status === filter);
-    
-    const list = document.getElementById('projects-list');
-    if (projects.length === 0) {
-        list.innerHTML = '<div class="empty-state"><p>No projects</p></div>';
-        return;
+function renderFProjects(f) {
+    var p = state.data.projects; if(f!=='all') p=p.filter(function(x){return x.status===f;});
+    var l = document.getElementById('projects-list');
+    l.innerHTML = p.length ? p.map(function(x){return '<div class="project-card"><div class="card-top"><span class="card-name">'+esc(x.name)+'</span><span class="status-badge '+x.status+'">'+x.status+'</span></div><div class="project-timer">Time: '+fmt(x.remaining_minutes)+'</div>'+(x.notes?'<div class="card-notes">'+esc(x.notes)+'</div>':'')+'<div class="card-actions"><button class="btn-secondary" onclick="startTimer('+x.id+')">Start</button><button class="btn-secondary" onclick="editProject('+x.id+')">Edit</button><button class="btn-danger" onclick="deleteProject('+x.id+')">Del</button></div></div>';}).join('') : '<div class="empty-state"><p>None</p></div>';
+}
+
+function renderFAccounts(f) {
+    var a = state.data.accounts; if(f==='active') a=a.filter(function(x){return x.is_active;}); else if(f==='inactive') a=a.filter(function(x){return !x.is_active;});
+    var l = document.getElementById('accounts-list');
+    l.innerHTML = a.length ? a.map(function(x){var p=state.data.projects.find(function(z){return z.id===x.project_id;}); return '<div class="account-card"><div class="card-top"><span class="card-provider">'+provIcon(x.provider)+'</span><span class="card-status '+(x.is_active?'active':'inactive')+'"></span></div><div class="card-email">'+esc(x.email)+'</div><div class="card-provider-name">'+x.provider+'</div>'+(p?'<div class="card-project">'+esc(p.name)+'</div>':'')+'<div class="card-actions"><button class="btn-secondary" onclick="useAccount('+x.id+')">Use</button><button class="btn-secondary" onclick="editAccount('+x.id+')">Edit</button><button class="btn-danger" onclick="deleteAccount('+x.id+')">Del</button></div></div>';}).join('') : '<div class="empty-state"><p>None</p></div>';
+}
+
+function openModal(){document.getElementById('modal-overlay').classList.remove('hidden');}
+function closeModal(){document.getElementById('modal-overlay').classList.add('hidden');}
+
+function exportData(){
+    var d={accounts:state.data.accounts,projects:state.data.projects,exportedAt:new Date().toISOString()};
+    var b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'}), a=document.createElement('a');
+    a.href=URL.createObjectURL(b);a.download='ai-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();
+    toast('Exported!','success');
+}
+
+function importData(e){
+    var f=e.target.files[0]; if(!f)return;
+    var r=new FileReader(); r.onload=function(ev){
+        try{var d=JSON.parse(ev.target.result);if(confirm('Replace data?')){state.data={accounts:d.accounts||[],projects:d.projects||[]};saveData();refresh();toast('Imported!','success');}}catch(er){toast('Error','error');}
+    }; r.readAsText(f); e.target.value='';
+}
+
+function changePw(){
+    var n=prompt('New password:'); if(!n)return;
+    var c=prompt('Confirm:'); if(n!==c)return toast('Mismatch','error');
+    localStorage.setItem('aim-pw-'+btoa(state.currentUser), btoa(n));
+    toast('Changed!','success');
+}
+
+function resetAll(){
+    if(!confirm('Delete all data?'))return;
+    if(!confirm('Final confirm?'))return;
+    if(state.currentUser){
+        localStorage.removeItem(getUserKey(state.currentUser));
+        localStorage.removeItem('aim-pw-'+btoa(state.currentUser));
+        var u=getUsers().filter(function(x){return x!==state.currentUser;});saveUsers(u);
+        localStorage.removeItem('aim-current-user');
     }
-    
-    list.innerHTML = projects.map(proj => `
-    <div class="project-card">
-        <div class="card-top">
-            <span class="card-name">${escapeHtml(proj.name)}</span>
-            <span class="status-badge ${proj.status}">${proj.status}</span>
-        </div>
-        <div class="project-timer">Time: ${formatTime(proj.remaining_minutes)}</div>
-        ${proj.notes ? `<div class="card-notes">${escapeHtml(proj.notes)}</div>` : ''}
-        <div class="card-actions">
-            <button class="btn-secondary" onclick="startProjectTimer(${proj.id})">Start</button>
-            <button class="btn-secondary" onclick="editProject(${proj.id})">Edit</button>
-            <button class="btn-danger" onclick="deleteProject(${proj.id})">Del</button>
-        </div>
-    </div>`).join('');
-}
-
-function renderFilteredAccounts(filter) {
-    let accounts = state.data.accounts;
-    if (filter === 'active') accounts = accounts.filter(a => a.is_active);
-    else if (filter === 'inactive') accounts = accounts.filter(a => !a.is_active);
-    
-    const list = document.getElementById('accounts-list');
-    if (accounts.length === 0) {
-        list.innerHTML = '<div class="empty-state"><p>No accounts</p></div>';
-        return;
-    }
-    
-    list.innerHTML = accounts.map(acc => {
-        const project = state.data.projects.find(p => p.id === acc.project_id);
-        return `
-        <div class="account-card">
-            <div class="card-top">
-                <span class="card-provider">${getProviderIcon(acc.provider)}</span>
-                <span class="card-status ${acc.is_active ? 'active' : 'inactive'}"></span>
-            </div>
-            <div class="card-email">${escapeHtml(acc.email)}</div>
-            <div class="card-provider-name">${acc.provider}</div>
-            ${project ? `<div class="card-project">${escapeHtml(project.name)}</div>` : ''}
-            <div class="card-actions">
-                <button class="btn-secondary" onclick="useAccount(${acc.id})">Use</button>
-                <button class="btn-secondary" onclick="editAccount(${acc.id})">Edit</button>
-                <button class="btn-danger" onclick="deleteAccount(${acc.id})">Del</button>
-            </div>
-        </div>`;
-    }).join('');
-}
-
-function openModal() { document.getElementById('modal-overlay').classList.remove('hidden'); }
-function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); }
-
-function exportData() {
-    const data = { ...state.data, exportedAt: new Date().toISOString() };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `ai-manager-backup-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    showToast('Exported!', 'success');
-}
-
-function importData(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function(ev) {
-        try {
-            const data = JSON.parse(ev.target.result);
-            if (confirm('Replace all data?')) {
-                state.data = { accounts: data.accounts || [], projects: data.projects || [] };
-                saveData();
-                refreshView();
-                showToast('Imported!', 'success');
-            }
-        } catch (err) { showToast('Error', 'error'); }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-}
-
-function changePassword() {
-    const newPw = prompt('New password:');
-    if (!newPw) return;
-    const confirm = prompt('Confirm:');
-    if (newPw !== confirm) return showToast('Mismatch', 'error');
-    localStorage.setItem('ai-manager-password', btoa(newPw));
-    showToast('Changed!', 'success');
-}
-
-function resetAllData() {
-    if (!confirm('Delete ALL your data?')) return;
-    if (!confirm('Final confirm? This cannot be undone.')) return;
-    
-    const email = state.currentUser;
-    if (email) {
-        localStorage.removeItem(getUserStorageKey(email));
-        localStorage.removeItem('ai-manager-password-' + btoa(email));
-        
-        let users = JSON.parse(localStorage.getItem('ai-manager-users') || '[]');
-        users = users.filter(u => u !== email);
-        localStorage.setItem('ai-manager-users', JSON.stringify(users));
-        
-        localStorage.removeItem('ai-manager-current-user');
-    }
-    
     location.reload();
 }
 
-function refreshView() {
-    if (state.currentView === 'dashboard') renderDashboard();
-    else if (state.currentView === 'projects') renderProjects();
-    else if (state.currentView === 'accounts') renderAccounts();
+function refresh(){
+    if(state.currentView==='dashboard')renderDashboard();
+    else if(state.currentView==='projects')renderProjects();
+    else if(state.currentView==='accounts')renderAccounts();
 }
 
-function getProviderIcon(provider) {
-    const icons = { 'Claude': '🔵', 'Codex': '⚡', 'Grok': '🚀', 'ChatGPT': '💬', 'Gemini': '🌟', 'DeepSeek': '🔮' };
-    return icons[provider] || '🤖';
-}
-
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function showToast(msg, type = 'success') {
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = msg;
-    document.getElementById('toast-container').appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-}
+document.addEventListener('DOMContentLoaded', function(){
+    var storedEmail = localStorage.getItem('aim-current-user');
+    if (storedEmail) { state.currentUser = storedEmail; }
+    
+    loadData();
+    state.isFirstTime = getUsers().length === 0;
+    showLoginScreen();
+    setupEvents();
+    startTimerLoop();
+});
